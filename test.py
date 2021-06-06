@@ -14,6 +14,7 @@ import torchvision.transforms as transforms
 import cv2
 import sys
 import time
+import matplotlib.pyplot as plt
 np.set_printoptions(threshold=sys.maxsize)
 
 
@@ -68,7 +69,7 @@ def vis_parsing_maps(im, parsing_anno, mask, iou, part_of_img, stride, save_im=F
 
     # return vis_im
 
-def evaluate(respth='./res/test_res', dspth='old_people/', annotation_path='./annotations/',  cp='79999_iter.pth'):
+def evaluate(respth='./res/test_res', size=512,  dspth='old_people/', annotation_path='./annotations/',  cp='79999_iter.pth'):
     if not os.path.exists(respth):
         os.makedirs(respth)
 
@@ -88,7 +89,6 @@ def evaluate(respth='./res/test_res', dspth='old_people/', annotation_path='./an
     excessive_parts = []
     not_found_parts = []
     resolutions = []
-    size = 512
     with torch.no_grad():
         for image_path in os.listdir(dspth):
             print('Image {} processed successfully.'.format(image_path))
@@ -139,6 +139,63 @@ def evaluate(respth='./res/test_res', dspth='old_people/', annotation_path='./an
 
             vis_parsing_maps(image, parsing, mask, iou, part_of_img/(size**2), stride=1, save_im=True, save_path=osp.join(respth, image_path))
     return ious, parts_of_img, excessive_parts, not_found_parts, resolutions
+
+
+def segment(img, size=512,  cp='79999_iter.pth'):
+    n_classes=19
+    net = BiSeNet(n_classes=n_classes)
+    net.cuda()
+    save_pth = osp.join('res/cp', cp)
+    net.load_state_dict(torch.load(save_pth))
+    net.eval()
+
+    to_tensor = transforms.Compose([
+        transforms.ToTensor(),
+        transforms.Normalize((0.485, 0.456, 0.406), (0.229, 0.224, 0.225)),
+    ])
+    with torch.no_grad():
+        resolution = img.size
+        image = img.resize((size, size), Image.BILINEAR)
+        img_np = np.array(image)
+        print('Image processed successfully. Resolution {}.'.format(resolution))
+        #image = cv2.resize(img, (size, size), Image.BILINEAR)
+        #img = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+        img = to_tensor(image)
+        img = torch.unsqueeze(img, 0)
+        img = img.cuda()
+        out = net(img)[0]
+        #parsing = out[:, :2].squeeze(0).cpu().numpy().argmax(0)
+        parsing = out.squeeze(0).cpu().numpy().argmax(0)
+        for row_id in range(parsing.shape[0]):
+            for col_id in range(parsing.shape[1]):
+                if parsing[row_id][col_id] in (1, 2, 3, 4, 5, 6, 10, 11, 12, 13):
+                    parsing[row_id][col_id] = 1
+                else:
+                    parsing[row_id][col_id] = 0
+
+    RED = (255, 0, 0)
+    BLUE = (0, 0, 255)
+    GREEN = (0, 255, 0)
+    stride = 1
+
+    img = img.cuda().squeeze().cpu().clone().numpy()
+    vis_im = img.copy().astype(np.uint8)
+    vis_parsing_anno = parsing.copy().astype(np.uint8)
+    vis_parsing_anno = cv2.resize(vis_parsing_anno, None, fx=stride, fy=stride, interpolation=cv2.INTER_NEAREST)
+    vis_parsing_anno_color = np.zeros((vis_parsing_anno.shape[0], vis_parsing_anno.shape[1], 3)) + 255
+
+    index = np.where(vis_parsing_anno == 1)
+    vis_parsing_anno_color[index[0], index[1], :] = RED
+
+    vis_parsing_anno_color = vis_parsing_anno_color.astype(np.uint8)
+    # print(vis_parsing_anno_color.shape, vis_im.shape)
+    vis_im = cv2.addWeighted(cv2.cvtColor(img_np, cv2.COLOR_RGB2BGR), 0.7, vis_parsing_anno_color, 0.3, 0)
+
+    #cv2.putText(vis_im, "IoU:{:.2%} ".format(iou), (10, 40), cv2.FONT_HERSHEY_PLAIN, 2, (0, 0, 255), 3)
+    #cv2.putText(vis_im, "PoI:{:.2%} ".format(part_of_img), (10, 80), cv2.FONT_HERSHEY_PLAIN, 2, (0, 0, 255), 3)
+
+    return vis_im
+
 
 
 
