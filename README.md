@@ -2,7 +2,7 @@
 Fork of: https://github.com/zllrunning/face-parsing.PyTorch  
 
 # Required Dependencies
-Pytorch, jupyter, numpy, opencv-python, scipy, matplotlib
+Pytorch, jupyter, numpy, opencv-python, scipy, matplotlib, tqdm
 
 # Analysis
 To see the analysis clone the repository and run all 'Analysis.ipynb'.
