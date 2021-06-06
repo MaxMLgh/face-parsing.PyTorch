@@ -15,6 +15,7 @@ import cv2
 import sys
 import time
 import matplotlib.pyplot as plt
+from tqdm.notebook import tqdm
 np.set_printoptions(threshold=sys.maxsize)
 
 
@@ -90,8 +91,7 @@ def evaluate(respth='./res/test_res', size=512,  dspth='old_people/', annotation
     not_found_parts = []
     resolutions = []
     with torch.no_grad():
-        for image_path in os.listdir(dspth):
-            print('Image {} processed successfully.'.format(image_path))
+        for image_path in tqdm(os.listdir(dspth)):
             mask = Image.open(osp.join(annotation_path, image_path))
             mask = mask.resize((size, size), Image.BILINEAR)
             mask = np.array(mask)
