@@ -35,17 +35,19 @@ def vis_parsing_maps(im, parsing_anno, mask, iou, part_of_img, stride, save_im=F
     GREEN = (0, 255, 0)
 
     im = np.array(im)
+
     vis_im = im.copy().astype(np.uint8)
     vis_parsing_anno = parsing_anno.copy().astype(np.uint8)
     vis_parsing_anno = cv2.resize(vis_parsing_anno, None, fx=stride, fy=stride, interpolation=cv2.INTER_NEAREST)
     vis_parsing_anno_color = np.zeros((vis_parsing_anno.shape[0], vis_parsing_anno.shape[1], 3)) + 255
 
     index = np.where(vis_parsing_anno == 1)
+
     vis_parsing_anno_color[index[0], index[1], :] = RED
 
     vis_parsing_anno_color = vis_parsing_anno_color.astype(np.uint8)
     # print(vis_parsing_anno_color.shape, vis_im.shape)
-    vis_im = cv2.addWeighted(cv2.cvtColor(vis_im, cv2.COLOR_RGB2BGR), 0.7, vis_parsing_anno_color, 0.3, 0)
+    vis_im = cv2.addWeighted(vis_im, 0.7, vis_parsing_anno_color, 0.3, 0)
 
     # mask
     vis_parsing_mask = mask.copy().astype(np.uint8)
@@ -96,15 +98,15 @@ def evaluate(respth='./res/test_res', size=512,  dspth='old_people/', annotation
             mask = mask.resize((size, size), Image.BILINEAR)
             mask = np.array(mask)
 
-
             img = Image.open(osp.join(dspth, image_path))
             resolution = img.size
+
             image = img.resize((size, size), Image.BILINEAR)
             img = to_tensor(image)
+
             img = torch.unsqueeze(img, 0)
             img = img.cuda()
             out = net(img)[0]
-            #parsing = out[:, :2].squeeze(0).cpu().numpy().argmax(0)
             parsing = out.squeeze(0).cpu().numpy().argmax(0)
             for row_id in range(parsing.shape[0]):
                 for col_id in range(parsing.shape[1]):
@@ -113,23 +115,12 @@ def evaluate(respth='./res/test_res', size=512,  dspth='old_people/', annotation
                     else:
                         parsing[row_id][col_id] = 0
 
-            intersection = 0
-            union = 0
-            part_of_img = 0
-            excessive_part = 0
-            not_found_part = 0
-            for row_id in range(parsing.shape[0]):
-                for col_id in range(parsing.shape[1]):
-                    if mask[row_id][col_id] == 1:
-                        part_of_img += 1
-                    if parsing[row_id][col_id] == 1 and mask[row_id][col_id] == 1:
-                        intersection += 1
-                    if parsing[row_id][col_id] == 1 or mask[row_id][col_id] == 1:
-                        union += 1
-                    if parsing[row_id][col_id] == 1 and mask[row_id][col_id] == 0:
-                        excessive_part += 1
-                    if parsing[row_id][col_id] == 0 and mask[row_id][col_id] == 1:
-                        not_found_part += 1
+            part_of_img = len(np.where(mask == 1)[0])
+            intersection = len(np.where(np.logical_and(parsing == 1, mask == 1))[0])
+            union = len(np.where(np.logical_or(parsing == 1, mask == 1))[0])
+            excessive_part = len(np.where(np.logical_and(parsing == 1, mask != 1))[0])
+            not_found_part = len(np.where(np.logical_and(parsing != 1, mask == 1))[0])
+
             iou = intersection/union
             ious.append(iou)
             parts_of_img.append(part_of_img/(size**2))
