@@ -19,37 +19,35 @@ from tqdm.notebook import tqdm
 np.set_printoptions(threshold=sys.maxsize)
 
 
-def vis_parsing_maps(im, parsing_anno, mask, iou, part_of_img, stride, save_im=False, save_path='./res/test_res/1.png'):
+class Color:
     RED = (255, 0, 0)
     BLUE = (0, 0, 255)
     GREEN = (0, 255, 0)
 
+
+def apply_mask(parsing, color, stride=1):
+    vis_parsing = parsing.copy().astype(np.uint8)
+    vis_parsing = cv2.resize(vis_parsing, None, fx=stride, fy=stride, interpolation=cv2.INTER_NEAREST)
+    vis_parsing_color = np.zeros((vis_parsing.shape[0], vis_parsing.shape[1], 3)) + 255
+
+    index = np.where(vis_parsing == 1)
+
+    vis_parsing_color[index[0], index[1], :] = color
+    vis_parsing_color = vis_parsing_color.astype(np.uint8)
+    return vis_parsing_color
+
+
+
+def vis_parsing_maps(im, parsing_anno, mask, iou, part_of_img, stride, save_im=False, save_path='./res/test_res/1.png'):
     im = np.array(im)
 
     vis_im = im.copy().astype(np.uint8)
-    vis_parsing_anno = parsing_anno.copy().astype(np.uint8)
-    vis_parsing_anno = cv2.resize(vis_parsing_anno, None, fx=stride, fy=stride, interpolation=cv2.INTER_NEAREST)
-    vis_parsing_anno_color = np.zeros((vis_parsing_anno.shape[0], vis_parsing_anno.shape[1], 3)) + 255
-
-    index = np.where(vis_parsing_anno == 1)
-
-    vis_parsing_anno_color[index[0], index[1], :] = RED
-
-    vis_parsing_anno_color = vis_parsing_anno_color.astype(np.uint8)
-    # print(vis_parsing_anno_color.shape, vis_im.shape)
+    vis_parsing_anno_color = apply_mask(parsing_anno, Color.RED, stride)
     vis_im = cv2.addWeighted(vis_im, 0.7, vis_parsing_anno_color, 0.3, 0)
 
     # mask
     vis_parsing_mask = mask.copy().astype(np.uint8)
-    vis_parsing_mask = cv2.resize(vis_parsing_mask, None, fx=stride, fy=stride, interpolation=cv2.INTER_NEAREST)
-    vis_parsing_mask_color = np.zeros((vis_parsing_mask.shape[0], vis_parsing_mask.shape[1], 3)) + 255
-
-
-    index = np.where(vis_parsing_mask == 1)
-    vis_parsing_mask_color[index[0], index[1], :] = GREEN
-
-    vis_parsing_mask_color = vis_parsing_mask_color.astype(np.uint8)
-    # print(vis_parsing_anno_color.shape, vis_im.shape)
+    vis_parsing_mask_color = apply_mask(vis_parsing_mask, Color.GREEN, stride)
     vis_im = cv2.addWeighted(cv2.cvtColor(vis_im, cv2.COLOR_RGB2BGR), 0.8, vis_parsing_mask_color, 0.2, 0)
 
     cv2.putText(vis_im, "IoU:{:.2%} ".format(iou), (10, 40), cv2.FONT_HERSHEY_PLAIN, 2, (0, 0, 255), 3)
@@ -126,8 +124,10 @@ def evaluate(respth='./res/test_res', size=512,  dspth='old_people/', annotation
     return ious, parts_of_img, excessive_parts, not_found_parts, resolutions
 
 
-def segment(img, size=512,  cp='79999_iter.pth'):
+def segment(img, size=512, save=True, folder_save='res/web_res/',  cp='79999_iter.pth'):
     net, to_tensor = read_net(cp)
+    time_of_save = time.strftime('%d_%H%M%S', time.localtime())
+    save_path = '{}web_img_{}.png'.format(folder_save,time_of_save)
     with torch.no_grad():
         resolution = img.size
         image = img.resize((size, size), Image.BILINEAR)
@@ -135,20 +135,16 @@ def segment(img, size=512,  cp='79999_iter.pth'):
         print('Image processed successfully. Resolution {}.'.format(resolution))
         parsing = get_parsing(image, to_tensor, net)
 
-    RED = (255, 0, 0)
-    BLUE = (0, 0, 255)
-    GREEN = (0, 255, 0)
     stride = 1
 
     vis_parsing_anno = parsing.copy().astype(np.uint8)
-    vis_parsing_anno = cv2.resize(vis_parsing_anno, None, fx=stride, fy=stride, interpolation=cv2.INTER_NEAREST)
-    vis_parsing_anno_color = np.zeros((vis_parsing_anno.shape[0], vis_parsing_anno.shape[1], 3)) + 255
+    vis_parsing_anno_color = apply_mask(vis_parsing_anno, Color.BLUE, stride)
+    vis_im = cv2.addWeighted(cv2.cvtColor(img_np, cv2.COLOR_RGB2BGR), 0.7,
+                             cv2.cvtColor(vis_parsing_anno_color, cv2.COLOR_RGB2BGR), 0.3, 0)
 
-    index = np.where(vis_parsing_anno == 1)
-    vis_parsing_anno_color[index[0], index[1], :] = RED
-
-    vis_parsing_anno_color = vis_parsing_anno_color.astype(np.uint8)
-    vis_im = cv2.addWeighted(cv2.cvtColor(img_np, cv2.COLOR_RGB2BGR), 0.7, vis_parsing_anno_color, 0.3, 0)
+    if save:
+        print('Image saved to {}.'.format(save_path))
+        cv2.imwrite(save_path, vis_im)
 
     return vis_im
 
