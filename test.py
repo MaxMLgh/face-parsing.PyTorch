@@ -19,17 +19,7 @@ from tqdm.notebook import tqdm
 np.set_printoptions(threshold=sys.maxsize)
 
 
-def vis_parsing_maps(im, parsing_anno, mask, iou, part_of_img, stride, save_im=False, save_path='vis_results/parsing_map_on_im.jpg'):
-    # Colors for all 20 parts
-    part_colors = [[255, 0, 0], [255, 85, 0], [255, 170, 0],
-                   [255, 0, 85], [255, 0, 170],
-                   [0, 255, 0], [85, 255, 0], [170, 255, 0],
-                   [0, 255, 85], [0, 255, 170],
-                   [0, 0, 255], [85, 0, 255], [170, 0, 255],
-                   [0, 85, 255], [0, 170, 255],
-                   [255, 255, 0], [255, 255, 85], [255, 255, 170],
-                   [255, 0, 255], [255, 85, 255], [255, 170, 255],
-                   [0, 255, 255], [85, 255, 255], [170, 255, 255]]
+def vis_parsing_maps(im, parsing_anno, mask, iou, part_of_img, stride, save_im=False, save_path='./res/test_res/1.png'):
     RED = (255, 0, 0)
     BLUE = (0, 0, 255)
     GREEN = (0, 255, 0)
@@ -67,15 +57,11 @@ def vis_parsing_maps(im, parsing_anno, mask, iou, part_of_img, stride, save_im=F
 
     # Save result or not
     if save_im:
-        cv2.imwrite(save_path[:-4] +'.png', vis_parsing_anno)
-        cv2.imwrite(save_path, vis_im, [int(cv2.IMWRITE_JPEG_QUALITY), 100])
+        cv2.imwrite(save_path, vis_im)
 
     # return vis_im
 
-def evaluate(respth='./res/test_res', size=512,  dspth='old_people/', annotation_path='./annotations/',  cp='79999_iter.pth'):
-    if not os.path.exists(respth):
-        os.makedirs(respth)
-
+def read_net(cp='79999_iter.pth'):
     n_classes = 19
     net = BiSeNet(n_classes=n_classes)
     net.cuda()
@@ -87,6 +73,25 @@ def evaluate(respth='./res/test_res', size=512,  dspth='old_people/', annotation
         transforms.ToTensor(),
         transforms.Normalize((0.485, 0.456, 0.406), (0.229, 0.224, 0.225)),
     ])
+    return net, to_tensor
+
+def get_parsing(image, to_tensor, net):
+    img = to_tensor(image)
+    img = torch.unsqueeze(img, 0)
+    img = img.cuda()
+    out = net(img)[0]
+    parsing = out.squeeze(0).cpu().numpy().argmax(0)
+    # classes below are different parts of a person (eye, hair, nose, etc.)
+    index_face = np.where((parsing == 1) | (parsing == 2) | (parsing == 3)
+                          | (parsing == 4) | (parsing == 5) | (parsing == 6)
+                          | (parsing == 10) | (parsing == 11)
+                          | (parsing == 12) | (parsing == 13))
+
+    parsing[index_face[0], index_face[1]] = 1
+    return parsing
+
+def evaluate(respth='./res/test_res', size=512,  dspth='old_people/', annotation_path='./annotations/',  cp='79999_iter.pth'):
+    net, to_tensor = read_net(cp)
     ious = []
     parts_of_img = []
     excessive_parts = []
@@ -102,18 +107,7 @@ def evaluate(respth='./res/test_res', size=512,  dspth='old_people/', annotation
             resolution = img.size
 
             image = img.resize((size, size), Image.BILINEAR)
-            img = to_tensor(image)
-
-            img = torch.unsqueeze(img, 0)
-            img = img.cuda()
-            out = net(img)[0]
-            parsing = out.squeeze(0).cpu().numpy().argmax(0)
-            for row_id in range(parsing.shape[0]):
-                for col_id in range(parsing.shape[1]):
-                    if parsing[row_id][col_id] in (1, 2, 3, 4, 5, 6, 10, 11, 12, 13):
-                        parsing[row_id][col_id] = 1
-                    else:
-                        parsing[row_id][col_id] = 0
+            parsing = get_parsing(image, to_tensor, net)
 
             part_of_img = len(np.where(mask == 1)[0])
             intersection = len(np.where(np.logical_and(parsing == 1, mask == 1))[0])
@@ -133,44 +127,19 @@ def evaluate(respth='./res/test_res', size=512,  dspth='old_people/', annotation
 
 
 def segment(img, size=512,  cp='79999_iter.pth'):
-    n_classes=19
-    net = BiSeNet(n_classes=n_classes)
-    net.cuda()
-    save_pth = osp.join('res/cp', cp)
-    net.load_state_dict(torch.load(save_pth))
-    net.eval()
-
-    to_tensor = transforms.Compose([
-        transforms.ToTensor(),
-        transforms.Normalize((0.485, 0.456, 0.406), (0.229, 0.224, 0.225)),
-    ])
+    net, to_tensor = read_net(cp)
     with torch.no_grad():
         resolution = img.size
         image = img.resize((size, size), Image.BILINEAR)
         img_np = np.array(image)
         print('Image processed successfully. Resolution {}.'.format(resolution))
-        #image = cv2.resize(img, (size, size), Image.BILINEAR)
-        #img = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
-        img = to_tensor(image)
-        img = torch.unsqueeze(img, 0)
-        img = img.cuda()
-        out = net(img)[0]
-        #parsing = out[:, :2].squeeze(0).cpu().numpy().argmax(0)
-        parsing = out.squeeze(0).cpu().numpy().argmax(0)
-        for row_id in range(parsing.shape[0]):
-            for col_id in range(parsing.shape[1]):
-                if parsing[row_id][col_id] in (1, 2, 3, 4, 5, 6, 10, 11, 12, 13):
-                    parsing[row_id][col_id] = 1
-                else:
-                    parsing[row_id][col_id] = 0
+        parsing = get_parsing(image, to_tensor, net)
 
     RED = (255, 0, 0)
     BLUE = (0, 0, 255)
     GREEN = (0, 255, 0)
     stride = 1
 
-    img = img.cuda().squeeze().cpu().clone().numpy()
-    vis_im = img.copy().astype(np.uint8)
     vis_parsing_anno = parsing.copy().astype(np.uint8)
     vis_parsing_anno = cv2.resize(vis_parsing_anno, None, fx=stride, fy=stride, interpolation=cv2.INTER_NEAREST)
     vis_parsing_anno_color = np.zeros((vis_parsing_anno.shape[0], vis_parsing_anno.shape[1], 3)) + 255
@@ -179,18 +148,9 @@ def segment(img, size=512,  cp='79999_iter.pth'):
     vis_parsing_anno_color[index[0], index[1], :] = RED
 
     vis_parsing_anno_color = vis_parsing_anno_color.astype(np.uint8)
-    # print(vis_parsing_anno_color.shape, vis_im.shape)
     vis_im = cv2.addWeighted(cv2.cvtColor(img_np, cv2.COLOR_RGB2BGR), 0.7, vis_parsing_anno_color, 0.3, 0)
 
-    #cv2.putText(vis_im, "IoU:{:.2%} ".format(iou), (10, 40), cv2.FONT_HERSHEY_PLAIN, 2, (0, 0, 255), 3)
-    #cv2.putText(vis_im, "PoI:{:.2%} ".format(part_of_img), (10, 80), cv2.FONT_HERSHEY_PLAIN, 2, (0, 0, 255), 3)
-
     return vis_im
-
-
-
-
-
 
 
 if __name__ == "__main__":
